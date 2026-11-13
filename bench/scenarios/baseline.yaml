@@ -1,0 +1,26 @@
+# M1 baseline: concurrency sweep against vLLM on one GPU.
+#   make port-forward        # in another terminal
+#   make bench
+# Change one thing at a time between runs (see docs/roadmap.md) and keep the rest fixed.
+name: baseline
+
+target:
+  base_url: http://localhost:8000/v1
+  # Must match the model name vLLM serves (deploy/vllm/deployment.yaml).
+  model: Qwen/Qwen3-8B
+
+request:
+  prompt_words: 400
+  max_tokens: 128
+  temperature: 0.0
+  # Each prompt starts with a unique marker, so prefix caching cannot flatter the numbers.
+  unique_prefix: true
+  extra_body:
+    # vLLM extension: keep generating to max_tokens so every request has the same output length.
+    ignore_eos: true
+
+load:
+  concurrency: [1, 2, 4, 8, 16, 32, 64]
+  warmup_seconds: 10
+  duration_seconds: 60
+  request_timeout_seconds: 300
