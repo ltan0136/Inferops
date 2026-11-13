@@ -9,8 +9,10 @@ from inferops.bench.loadgen import (
     preflight,
     run_level,
     run_scenario,
+    server_version,
 )
 from inferops.bench.metrics import summarize
+from inferops.mock.server import MOCK_VERSION
 from tests.conftest import MOCK_CAPACITY, make_scenario
 
 
@@ -31,6 +33,7 @@ async def test_level_records_only_successful_timed_requests(mock_url: str) -> No
         result = await run_level(client, scenario, concurrency=1)
 
     assert result.concurrency == 1
+    assert result.window_seconds == scenario.load.duration_seconds
     assert len(result.records) >= 2
     assert all(record.ok for record in result.records)
     assert all(record.started_at >= result.window_start for record in result.records)
@@ -55,8 +58,8 @@ async def test_queueing_past_capacity_shows_up_as_ttft(mock_url: str) -> None:
         within = await run_level(client, scenario, concurrency=MOCK_CAPACITY)
         beyond = await run_level(client, scenario, concurrency=MOCK_CAPACITY * 4)
 
-    at_capacity = summarize(within.concurrency, within.records, within.window_start)
-    saturated = summarize(beyond.concurrency, beyond.records, beyond.window_start)
+    at_capacity = summarize(within.concurrency, within.records, within.window_seconds)
+    saturated = summarize(beyond.concurrency, beyond.records, beyond.window_seconds)
 
     assert at_capacity.ttft is not None and saturated.ttft is not None
     # Each queued request waits for about three service times before it is served.
@@ -88,3 +91,12 @@ async def test_scenario_against_a_dead_target_raises() -> None:
     scenario = make_scenario("http://127.0.0.1:9/v1")
     with pytest.raises(BenchmarkError, match="preflight"):
         await run_scenario(scenario)
+
+
+async def test_server_version_is_read_from_the_root_beside_v1(mock_url: str) -> None:
+    assert await server_version(mock_url) == MOCK_VERSION
+    assert await server_version(mock_url + "/") == MOCK_VERSION
+
+
+async def test_server_version_of_a_dead_target_is_absent_not_an_error() -> None:
+    assert await server_version("http://127.0.0.1:9/v1") is None

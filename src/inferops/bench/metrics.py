@@ -3,9 +3,10 @@
 Definitions (see docs/metrics.md):
 
 - TTFT: send -> first streamed token.
-- TPOT: (last token - first token) / (output tokens - 1).
+- TPOT: (end of stream - first token) / (output tokens - 1).
 - Latency: send -> end of stream.
-- Throughput: successful requests (or their output tokens) per second of measured time.
+- Throughput: successful requests (or their output tokens) started in the measurement window,
+  divided by the window's length.
 """
 
 from __future__ import annotations
@@ -60,7 +61,8 @@ class LevelSummary:
     """One point on the curve: everything measured at one concurrency level."""
 
     concurrency: int
-    elapsed_seconds: float
+    # Length of the measurement window, the denominator of both throughputs.
+    window_seconds: float
     requests_ok: int
     requests_failed: int
     # Successful requests per second.
@@ -80,29 +82,35 @@ class LevelSummary:
 
 
 def summarize(
-    concurrency: int, records: Sequence[RequestRecord], window_start: float
+    concurrency: int, records: Sequence[RequestRecord], window_seconds: float
 ) -> LevelSummary:
     """Aggregate the records of one level.
 
-    `records` are the requests that started inside the measurement window. Measured time runs
-    from `window_start` to the last completion, so requests still in flight at the end of the
-    window are neither dropped (which would hide the slowest ones) nor counted for free.
+    `records` are the requests that started inside the measurement window, including those
+    that finished after it closed: dropping them would hide the slowest requests.
+
+    Throughput divides them by the window's length. In a closed loop a worker starts its next
+    request the moment the previous one ends, so the rate at which requests start is the rate
+    at which they finish. Dividing by the time to the last completion instead would charge the
+    window for the drain after it, when fewer than `concurrency` requests are still running,
+    and understate throughput by up to latency / (window + latency): most past saturation,
+    where queueing makes latency long.
     """
+    if window_seconds <= 0:
+        raise ValueError(f"window_seconds must be > 0, got {window_seconds}")
     ok = [record for record in records if record.ok]
     failed = len(records) - len(ok)
-    elapsed = max((record.finished_at for record in records), default=window_start) - window_start
 
     output_tokens = sum(record.output_tokens for record in ok)
     prompt_tokens = [record.prompt_tokens for record in ok if record.prompt_tokens is not None]
-    measurable = elapsed > 0
 
     return LevelSummary(
         concurrency=concurrency,
-        elapsed_seconds=elapsed,
+        window_seconds=window_seconds,
         requests_ok=len(ok),
         requests_failed=failed,
-        request_throughput=len(ok) / elapsed if measurable else 0.0,
-        output_token_throughput=output_tokens / elapsed if measurable else 0.0,
+        request_throughput=len(ok) / window_seconds,
+        output_token_throughput=output_tokens / window_seconds,
         mean_prompt_tokens=sum(prompt_tokens) / len(prompt_tokens) if prompt_tokens else None,
         mean_output_tokens=output_tokens / len(ok) if ok else None,
         ttft=Distribution.from_values([r.ttft for r in ok if r.ttft is not None]),

@@ -53,6 +53,8 @@ class LevelResult:
 
     concurrency: int
     window_start: float
+    # Length of the measurement window: the span in which recorded requests were started.
+    window_seconds: float
     records: list[RequestRecord]
 
 
@@ -143,7 +145,29 @@ async def run_level(
         raise BenchmarkError(
             f"no successful request at concurrency {concurrency}; first error: {first_error}"
         )
-    return LevelResult(concurrency=concurrency, window_start=window_start, records=records)
+    return LevelResult(
+        concurrency=concurrency,
+        window_start=window_start,
+        window_seconds=scenario.load.duration_seconds,
+        records=records,
+    )
+
+
+async def server_version(base_url: str, api_key: str | None = None) -> str | None:
+    """Best-effort `GET /version` (vLLM serves it at the root, beside `/v1`).
+
+    Recorded with each run so a curve can be traced back to the engine release that drew it.
+    Any failure returns None: a missing version must never stop a benchmark.
+    """
+    root = base_url.rstrip("/").removesuffix("/v1")
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    try:
+        async with httpx.AsyncClient(timeout=5.0, headers=headers) as client:
+            response = await client.get(f"{root}/version")
+        version = response.json().get("version") if response.status_code == 200 else None
+    except (httpx.HTTPError, ValueError, AttributeError):
+        return None
+    return version if isinstance(version, str) else None
 
 
 async def run_scenario(

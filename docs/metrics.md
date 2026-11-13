@@ -24,17 +24,39 @@ chunk is not always one token.
 
 | Metric | Definition |
 | --- | --- |
-| Request throughput | successful requests / measured seconds |
-| Output token throughput | output tokens of successful requests / measured seconds |
+| Request throughput | successful requests started in the window / window length |
+| Output token throughput | output tokens of those requests / window length |
 | p50 / p90 / p99 | percentiles over successful requests, linear interpolation between ranks |
 | Failed | requests that returned an error, timed out, or produced no token |
 
-Measured time runs from the start of the measurement window to the last completion. Requests
-that start during warmup are sent but not recorded. Requests that start inside the window are
-recorded even if they finish after it ends: dropping them would hide the slowest requests.
+Each level runs a warmup, then a measurement window of `duration_seconds`. Requests that start
+during warmup are sent but not recorded. Requests that start inside the window are recorded
+even if they finish after it ends: dropping them would hide the slowest requests.
 
-Failed requests never enter latency or throughput. A level with no successful request aborts
-the run instead of reporting zeros.
+Throughput divides by the window's length, not by the time to the last completion. In a closed
+loop a worker starts its next request the moment the previous one ends, so requests start at
+the rate they finish. After the window closes no new request starts and the level drains with
+fewer than `concurrency` requests in flight; counting that drain would understate throughput
+by up to latency / (window + latency). The error is largest past saturation, where queueing
+makes latency long, so it would bend the curve down exactly where the knee is. On a mock with
+capacity 8 and about 1 s per request, 16 streams read 28% low in a 3 s window and 11% low in a
+12 s window; divided by the window, both read 2% low.
+
+Counting whole requests in a fixed window has a resolution of one request per worker, so a
+level can be off by up to latency / window. On a real server latencies vary, workers drift out
+of step and the errors average out; keep the window many times longer than one request's
+latency. The mock's timings are exact, so its levels visibly step in multiples of
+concurrency / window from run to run.
+
+Failed requests never enter latency or throughput. A level with no successful request stops
+the run instead of reporting zeros; the levels already finished are still written, and
+`summary.json` marks the run as incomplete with the reason.
+
+## Run metadata
+
+`summary.json` starts with a `run` block: the `inferops` version, the start time (UTC), the
+version the server reports at `GET /version` (vLLM serves it; absent if the server does not),
+whether the sweep completed, and why it stopped if it did not.
 
 ## Server-side counterparts
 

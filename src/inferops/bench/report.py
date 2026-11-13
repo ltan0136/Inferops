@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import csv
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict
 from pathlib import Path
+from typing import Any
 
 from inferops.bench.loadgen import LevelResult
 from inferops.bench.metrics import Distribution, LevelSummary
@@ -16,7 +17,7 @@ _CSV_COLUMNS = (
     "concurrency",
     "requests_ok",
     "requests_failed",
-    "elapsed_seconds",
+    "window_seconds",
     "request_throughput",
     "output_token_throughput",
     "ttft_p50",
@@ -35,8 +36,14 @@ def _ms(distribution: Distribution | None, field: str) -> str:
     return f"{getattr(distribution, field) * 1000:.1f}"
 
 
-def render_markdown(summaries: Sequence[LevelSummary]) -> str:
-    """One table row per concurrency level, latencies in milliseconds."""
+def render_markdown(
+    summaries: Sequence[LevelSummary], *, stopped_because: str | None = None
+) -> str:
+    """One table row per concurrency level, latencies in milliseconds.
+
+    `stopped_because` marks a run that ended before its last level, so a partial table is
+    never mistaken for the whole sweep.
+    """
     lines = [
         "| concurrency | req/s | output tok/s | TTFT p50 (ms) | TTFT p99 (ms) "
         "| TPOT p50 (ms) | TPOT p99 (ms) | latency p50 (ms) | latency p99 (ms) | failed |",
@@ -55,6 +62,9 @@ def render_markdown(summaries: Sequence[LevelSummary]) -> str:
             "Note: the server sent no token usage for some requests, so output tokens were "
             "estimated by counting streamed chunks."
         )
+    if stopped_because is not None:
+        lines.append("")
+        lines.append(f"Note: the run stopped early; completed levels only: {stopped_because}")
     return "\n".join(lines) + "\n"
 
 
@@ -66,7 +76,7 @@ def _csv_row(summary: LevelSummary) -> dict[str, object]:
         "concurrency": summary.concurrency,
         "requests_ok": summary.requests_ok,
         "requests_failed": summary.requests_failed,
-        "elapsed_seconds": summary.elapsed_seconds,
+        "window_seconds": summary.window_seconds,
         "request_throughput": summary.request_throughput,
         "output_token_throughput": summary.output_token_throughput,
         "ttft_p50": pick(summary.ttft, "p50"),
@@ -83,17 +93,21 @@ def write_run(
     scenario: Scenario,
     results: Sequence[LevelResult],
     summaries: Sequence[LevelSummary],
+    *,
+    run_info: Mapping[str, Any] | None = None,
 ) -> None:
     """Persist one run.
 
-    - summary.json: the scenario plus every level's summary (seconds).
+    - summary.json: run metadata, the scenario and every level's summary (seconds).
     - summary.csv:  one row per level, for plotting.
     - summary.md:   the readable table (milliseconds).
     - requests.jsonl: every recorded request, so percentiles can be recomputed later.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    info = dict(run_info or {})
     summary = {
+        "run": info,
         "scenario": scenario.model_dump(mode="json"),
         "levels": [s.to_dict() for s in summaries],
     }
@@ -105,7 +119,8 @@ def write_run(
         for s in summaries:
             writer.writerow(_csv_row(s))
 
-    (out_dir / "summary.md").write_text(render_markdown(summaries), encoding="utf-8")
+    table = render_markdown(summaries, stopped_because=info.get("stopped_because"))
+    (out_dir / "summary.md").write_text(table, encoding="utf-8")
 
     with (out_dir / "requests.jsonl").open("w", encoding="utf-8") as handle:
         for result in results:

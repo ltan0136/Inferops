@@ -7,6 +7,9 @@
 #
 # GuideLLM sizes its synthetic prompts with the served model's tokenizer, which it fetches from
 # Hugging Face. Set TOKENIZER to a local tokenizer directory to stay offline.
+#
+# Compare like with like: set PROMPT_TOKENS to `mean_prompt_tokens` from the summary.json of
+# the `inferops bench` run being cross-checked, and OUTPUT_TOKENS to its `max_tokens`.
 set -euo pipefail
 
 TARGET="${TARGET:-http://localhost:8000}"
@@ -30,7 +33,7 @@ guidellm run \
   --override profile.streams "${STREAMS}" \
   --constraint "kind=max_duration,seconds=${SECONDS_PER_LEVEL}" \
   --data "kind=synthetic_text,prompt_tokens=${PROMPT_TOKENS},output_tokens=${OUTPUT_TOKENS}" \
-  "${tokenizer_args[@]}" \
+  ${tokenizer_args[@]+"${tokenizer_args[@]}"} \
   --output "kind=json,path=${OUT_DIR}/benchmark.json"
 
 echo "wrote ${OUT_DIR}/benchmark.json"
