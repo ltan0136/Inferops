@@ -7,13 +7,14 @@ import asyncio
 import os
 import sys
 from collections.abc import Sequence
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
 
 from inferops import __version__
-from inferops.bench.loadgen import BenchmarkError, LevelResult, run_scenario
+from inferops.bench.loadgen import BenchmarkError, LevelResult, run_scenario, server_version
 from inferops.bench.metrics import summarize
 from inferops.bench.report import render_markdown, write_run
 from inferops.bench.scenario import Scenario, load_scenario
@@ -31,23 +32,38 @@ def _with_target(scenario: Scenario, **changes: str) -> Scenario:
     return scenario.model_copy(update={"target": target})
 
 
-def _report_level(result: LevelResult) -> None:
-    ok = sum(1 for record in result.records if record.ok)
-    failed = len(result.records) - ok
-    print(f"concurrency {result.concurrency}: {ok} ok, {failed} failed", file=sys.stderr)
+@dataclass
+class _Run:
+    """What a run has produced so far, kept outside the event loop so a run that stops
+    part-way (a level with no successful request, Ctrl-C) still has its finished levels."""
+
+    scenario: Scenario
+    results: list[LevelResult] = field(default_factory=list)
+    server_version: str | None = None
+
+    def level_done(self, result: LevelResult) -> None:
+        self.results.append(result)
+        ok = sum(1 for record in result.records if record.ok)
+        failed = len(result.records) - ok
+        print(f"concurrency {result.concurrency}: {ok} ok, {failed} failed", file=sys.stderr)
 
 
-async def _run(
-    scenario: Scenario, api_key: str | None, *, spawn_mock: bool
-) -> tuple[Scenario, list[LevelResult]]:
+async def _sweep(run: _Run, api_key: str | None) -> None:
+    run.server_version = await server_version(run.scenario.target.base_url, api_key)
+    await run_scenario(run.scenario, api_key=api_key, on_level=run.level_done)
+
+
+async def _execute(run: _Run, api_key: str | None, *, spawn_mock: bool) -> None:
     if not spawn_mock:
-        return scenario, await run_scenario(scenario, api_key=api_key, on_level=_report_level)
+        await _sweep(run, api_key)
+        return
 
     from inferops.mock.server import running_mock_server
 
-    async with running_mock_server(model=scenario.target.model) as base_url:
-        scenario = _with_target(scenario, base_url=base_url)
-        return scenario, await run_scenario(scenario, api_key=api_key, on_level=_report_level)
+    async with running_mock_server(model=run.scenario.target.model) as base_url:
+        # The saved scenario records the address that was really benchmarked.
+        run.scenario = _with_target(run.scenario, base_url=base_url)
+        await _sweep(run, api_key)
 
 
 def _mock_available() -> bool:
@@ -79,18 +95,35 @@ def _bench(args: argparse.Namespace) -> int:
     if args.spawn_mock and not _mock_available():
         return _fail(_MOCK_HINT)
 
+    started_at = datetime.now(UTC)
+    run = _Run(scenario)
+    stopped_because: str | None = None
     try:
-        scenario, results = asyncio.run(_run(scenario, api_key, spawn_mock=args.spawn_mock))
+        asyncio.run(_execute(run, api_key, spawn_mock=args.spawn_mock))
     except BenchmarkError as exc:
-        return _fail(str(exc))
+        stopped_because = str(exc)
+    except KeyboardInterrupt:
+        stopped_because = "interrupted"
 
-    summaries = [summarize(r.concurrency, r.records, r.window_start) for r in results]
-    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    out_dir = args.out or Path("results") / f"{scenario.name}-{stamp}"
-    write_run(out_dir, scenario, results, summaries)
+    if not run.results:
+        return _fail(stopped_because or "no level completed")
 
-    print(render_markdown(summaries))
+    summaries = [summarize(r.concurrency, r.records, r.window_seconds) for r in run.results]
+    stamp = started_at.strftime("%Y%m%dT%H%M%SZ")
+    out_dir = args.out or Path("results") / f"{run.scenario.name}-{stamp}"
+    run_info = {
+        "inferops_version": __version__,
+        "started_at": started_at.isoformat(timespec="seconds"),
+        "server_version": run.server_version,
+        "complete": stopped_because is None,
+        "stopped_because": stopped_because,
+    }
+    write_run(out_dir, run.scenario, run.results, summaries, run_info=run_info)
+
+    print(render_markdown(summaries, stopped_because=stopped_because))
     print(f"wrote {out_dir}")
+    if stopped_because is not None:
+        return _fail(f"run stopped early, completed levels were written: {stopped_because}")
     return 0
 
 

@@ -5,16 +5,18 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from inferops.mock.server import DEFAULT_MODEL, create_app
+from inferops.mock.server import DEFAULT_MODEL, MOCK_VERSION, create_app
 
 
-async def test_health_and_model_listing(mock_url: str) -> None:
+async def test_health_version_and_model_listing(mock_url: str) -> None:
     root = mock_url.removesuffix("/v1")
     async with httpx.AsyncClient() as client:
         health = await client.get(f"{root}/health")
+        version = await client.get(f"{root}/version")
         models = await client.get(f"{mock_url}/models")
 
     assert health.status_code == 200
+    assert version.json() == {"version": MOCK_VERSION}
     assert [model["id"] for model in models.json()["data"]] == [DEFAULT_MODEL]
 
 

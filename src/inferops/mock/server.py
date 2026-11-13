@@ -27,7 +27,11 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.routing import Route
 
+from inferops import __version__
+
 DEFAULT_MODEL = "mock-model"
+# What `GET /version` reports, the way vLLM reports its release.
+MOCK_VERSION = f"inferops-mock {__version__}"
 
 
 def _chunk(model: str, delta: dict[str, Any], finish_reason: str | None = None) -> str:
@@ -55,6 +59,9 @@ def create_app(
 
     async def health(_: Request) -> Response:
         return JSONResponse({"status": "ok"})
+
+    async def version(_: Request) -> Response:
+        return JSONResponse({"version": MOCK_VERSION})
 
     async def models(_: Request) -> Response:
         return JSONResponse({"object": "list", "data": [{"id": model, "object": "model"}]})
@@ -131,6 +138,7 @@ def create_app(
     return Starlette(
         routes=[
             Route("/health", health, methods=["GET"]),
+            Route("/version", version, methods=["GET"]),
             Route("/v1/models", models, methods=["GET"]),
             Route("/v1/chat/completions", chat_completions, methods=["POST"]),
         ]

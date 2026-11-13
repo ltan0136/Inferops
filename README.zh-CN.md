@@ -44,7 +44,7 @@ make bench-smoke
    make bench            # 终端 2
    ```
 
-每次运行会在 `results/<场景名>-<UTC 时间>/` 下写出 `summary.md`、`summary.csv`、`summary.json` 和原始的 `requests.jsonl`。压测场景是一个 YAML 文件：[bench/scenarios/baseline.yaml](bench/scenarios/baseline.yaml)。
+每次运行会在 `results/<场景名>-<UTC 时间>/` 下写出 `summary.md`、`summary.csv`、`summary.json` 和原始的 `requests.jsonl`。`summary.json` 还会记下 `inferops` 版本、开始时间和服务端报告的 vLLM 版本。某一档失败或者按了 Ctrl-C，已经跑完的几档照样写出来，并标为未完成。压测场景是一个 YAML 文件：[bench/scenarios/baseline.yaml](bench/scenarios/baseline.yaml)。
 
 部署步骤是照上游文档写的，还没有在 5090 机器上实际跑过，首次实跑后会回来修正。
 
@@ -55,15 +55,16 @@ make bench-smoke
 | TTFT（首 token 延迟） | 发出请求 → 收到第一个流式 token |
 | TPOT（每 token 耗时） | （流结束 − 第一个 token）/（输出 token 数 − 1） |
 | 延迟 | 发出请求 → 流结束 |
-| 吞吐 | 每秒成功的请求数，以及它们的输出 token 数 |
+| 吞吐 | 测量窗口内发出且成功的请求数，以及它们的输出 token 数，除以窗口时长 |
 
 精确定义、对应的 vLLM 服务端指标、闭环压测的已知局限，见 [docs/metrics.md](docs/metrics.md)。
 
-为了让数字可信，做了三个选择：
+为了让数字可信，做了四个选择：
 
 - 每个 prompt 开头带一个唯一标记，前缀缓存没法让服务看起来比实际更快。
 - token 数取自服务端返回的 usage。服务端不返回时，报告会注明这是估算值。
 - 失败的请求记为失败，不进入延迟和吞吐统计。某一档并发没有任何成功请求时，整次运行直接终止。
+- 吞吐除以测量窗口的时长，而不是一直算到最后一个请求结束，这样每档收尾时的排空阶段不会把饱和点之后的曲线压低。
 
 ## 设计决策
 

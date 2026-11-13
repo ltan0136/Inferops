@@ -36,6 +36,24 @@ level, mock capacity 8.
 They agree within 7% on short runs, and both show throughput saturating past the mock's
 capacity. The same comparison on the real server is an open M1 item.
 
+### Addendum (2026-11-13): throughput denominator changed
+
+The `inferops bench` column above divided by the time from the window's start to the last
+completion, which understates throughput by up to latency / (window + latency)
+([metrics](../metrics.md#per-concurrency-level)). It now divides by the window's length.
+Rerun under the same conditions (three runs; GuideLLM not rerun):
+
+| Streams | `inferops bench` req/s, now | GuideLLM 0.8.1 req/s (above) | Difference |
+| ---: | ---: | ---: | ---: |
+| 1 | 4.00 | 3.80 | 5% |
+| 4 | 16.00 | 14.40 | 11% |
+| 16 | 30.40 to 32.00 | 30.40 | 0 to 5% |
+
+The new numbers sit at the mock's theoretical rate (4 streams / 0.25 s per request = 16 req/s),
+but the 7% agreement no longer holds at 4 streams. Following the rule above, this is a finding
+to investigate, not to average: rerun GuideLLM on the mock, check how it computes its request
+rate, and settle the gap before the real-server cross-check.
+
 ## Alternatives considered
 
 | Option | Good at | Why not the only tool |

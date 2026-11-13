@@ -49,18 +49,17 @@ def test_tpot_is_undefined_for_a_single_token() -> None:
     assert record.tpot is None
 
 
-def test_summarize_counts_throughput_over_measured_time() -> None:
+def test_summarize_counts_throughput_over_the_window() -> None:
     records = [
         RequestRecord(started_at=100.0, first_token_at=100.1, finished_at=101.0, output_tokens=10),
         RequestRecord(started_at=101.0, first_token_at=101.3, finished_at=104.0, output_tokens=30),
     ]
-    summary = summarize(4, records, window_start=100.0)
+    summary = summarize(4, records, window_seconds=4.0)
 
     assert summary.concurrency == 4
     assert summary.requests_ok == 2
     assert summary.requests_failed == 0
-    # Measured time runs from the window start to the last completion: 4 s.
-    assert summary.elapsed_seconds == pytest.approx(4.0)
+    assert summary.window_seconds == pytest.approx(4.0)
     assert summary.request_throughput == pytest.approx(0.5)
     assert summary.output_token_throughput == pytest.approx(10.0)
     assert summary.mean_output_tokens == pytest.approx(20.0)
@@ -70,24 +69,40 @@ def test_summarize_counts_throughput_over_measured_time() -> None:
     assert summary.output_tokens_estimated is False
 
 
+def test_a_request_running_past_the_window_does_not_stretch_it() -> None:
+    """One closed-loop worker, 1 s per request: the true rate is 1 request per second.
+
+    The window is [0, 3). A request started during warmup ends at 0.5 and is not recorded;
+    the one started at 2.5 is recorded and ends at 3.5, after the window closed. Dividing by
+    the time to the last completion would report 3 / 3.5 = 0.86 req/s.
+    """
+    records = [
+        RequestRecord(started_at=start, first_token_at=start + 0.1, finished_at=start + 1.0)
+        for start in (0.5, 1.5, 2.5)
+    ]
+    summary = summarize(1, records, window_seconds=3.0)
+
+    assert summary.request_throughput == pytest.approx(1.0)
+    assert summary.latency is not None
+    assert summary.latency.max == pytest.approx(1.0)
+
+
 def test_failed_requests_are_counted_but_never_enter_latency_or_throughput() -> None:
     records = [
         RequestRecord(started_at=0.0, first_token_at=0.1, finished_at=1.0, output_tokens=10),
         RequestRecord(started_at=0.0, finished_at=2.0, error="HTTP 500: boom"),
     ]
-    summary = summarize(2, records, window_start=0.0)
+    summary = summarize(2, records, window_seconds=2.0)
 
     assert summary.requests_ok == 1
     assert summary.requests_failed == 1
-    # The failure still consumed wall time, so it stretches the measured window.
-    assert summary.elapsed_seconds == pytest.approx(2.0)
     assert summary.request_throughput == pytest.approx(0.5)
     assert summary.latency is not None
     assert summary.latency.max == pytest.approx(1.0)
 
 
 def test_summarize_with_no_records_reports_zero_throughput_and_no_latency() -> None:
-    summary = summarize(1, [], window_start=5.0)
+    summary = summarize(1, [], window_seconds=5.0)
     assert summary.requests_ok == 0
     assert summary.request_throughput == 0.0
     assert summary.ttft is None
@@ -104,4 +119,10 @@ def test_summary_flags_estimated_token_counts() -> None:
             output_tokens_estimated=True,
         )
     ]
-    assert summarize(1, records, window_start=0.0).output_tokens_estimated is True
+    assert summarize(1, records, window_seconds=1.0).output_tokens_estimated is True
+
+
+@pytest.mark.parametrize("window", [0.0, -1.0])
+def test_summarize_rejects_an_empty_window(window: float) -> None:
+    with pytest.raises(ValueError, match="window_seconds"):
+        summarize(1, [], window_seconds=window)

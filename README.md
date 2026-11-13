@@ -63,14 +63,18 @@ Output of one run (latencies in milliseconds):
 
 | concurrency | req/s | output tok/s | TTFT p50 | TTFT p99 | TPOT p50 | TPOT p99 | latency p50 | latency p99 | failed |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 3.85 | 77.1 | 53.9 | 54.4 | 10.7 | 10.9 | 257.4 | 260.5 | 0 |
-| 2 | 7.51 | 150.2 | 55.3 | 57.4 | 11.0 | 11.1 | 264.1 | 266.7 | 0 |
-| 4 | 14.33 | 286.6 | 57.9 | 63.2 | 11.4 | 11.7 | 274.4 | 281.0 | 0 |
-| 8 | 26.52 | 530.3 | 62.3 | 92.4 | 11.9 | 12.4 | 288.3 | 319.2 | 0 |
-| 16 | 26.29 | 525.7 | 319.1 | 324.6 | 11.9 | 12.3 | 545.6 | 555.5 | 0 |
+| 1 | 4.00 | 80.0 | 53.1 | 54.2 | 10.5 | 10.6 | 252.2 | 254.1 | 0 |
+| 2 | 8.00 | 160.0 | 53.6 | 54.6 | 10.5 | 10.7 | 253.3 | 256.7 | 0 |
+| 4 | 16.00 | 320.0 | 54.3 | 56.1 | 10.7 | 10.8 | 257.4 | 259.9 | 0 |
+| 8 | 32.00 | 640.0 | 57.4 | 60.3 | 11.1 | 11.3 | 267.8 | 273.8 | 0 |
+| 16 | 32.00 | 640.0 | 310.7 | 314.2 | 11.4 | 11.6 | 527.0 | 532.2 | 0 |
 
 These numbers describe the mock, not a model. Going from 8 to 16 streams adds no throughput
-and multiplies TTFT by five: the extra requests are waiting in the queue.
+and multiplies TTFT by about five: the extra requests are waiting in the queue.
+
+The mock's timings are exact and throughput counts whole requests in a 3 s window, so a level
+can come out one request per stream lower on another run (29.33 instead of 32.00 at 8 streams).
+[docs/metrics.md](docs/metrics.md#per-concurrency-level) explains why.
 
 ## Run it on a GPU
 
@@ -90,8 +94,10 @@ and multiplies TTFT by five: the extra requests are waiting in the queue.
    ```
 
 Each run writes `summary.md`, `summary.csv`, `summary.json` and the raw `requests.jsonl` to
-`results/<scenario>-<utc-time>/`. The scenario is a YAML file:
-[bench/scenarios/baseline.yaml](bench/scenarios/baseline.yaml).
+`results/<scenario>-<utc-time>/`. `summary.json` also records the `inferops` version, the start
+time and the vLLM version the server reports. If a level fails or you press Ctrl-C, the levels
+already finished are still written and marked as an incomplete run. The scenario is a YAML
+file: [bench/scenarios/baseline.yaml](bench/scenarios/baseline.yaml).
 
 ## What the benchmark measures
 
@@ -100,12 +106,12 @@ Each run writes `summary.md`, `summary.csv`, `summary.json` and the raw `request
 | TTFT | request sent → first streamed token |
 | TPOT | (end of stream − first token) / (output tokens − 1) |
 | Latency | request sent → end of stream |
-| Throughput | successful requests, and their output tokens, per measured second |
+| Throughput | successful requests started in the measurement window, and their output tokens, per second of the window |
 
 Exact definitions, the matching vLLM server metrics and the known limits of a closed-loop test
 are in [docs/metrics.md](docs/metrics.md).
 
-Three choices keep the numbers honest:
+Four choices keep the numbers honest:
 
 - Every prompt starts with a unique marker, so the prefix cache cannot make the server look
   faster than it is.
@@ -113,6 +119,8 @@ Three choices keep the numbers honest:
   counts are estimated.
 - A failed request is counted as failed and never enters latency or throughput. A level with
   no successful request stops the run.
+- Throughput is divided by the measurement window, not by the time to the last completion, so
+  the drain at the end of each level does not bend the curve down past saturation.
 
 ## Design decisions
 
