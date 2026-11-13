@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm
+  labels:
+    app: vllm
+spec:
+  replicas: 1
+  # One GPU means the old pod must release it before the new pod can start.
+  # A rolling update would leave the new pod Pending forever.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: vllm
+  template:
+    metadata:
+      labels:
+        app: vllm
+    spec:
+      # k3s registers the NVIDIA runtime under this RuntimeClass (see deploy/README.md).
+      runtimeClassName: nvidia
+      containers:
+        - name: vllm
+          # Pinned on purpose: vLLM ships a release every few weeks and numbers move with it.
+          image: vllm/vllm-openai:v0.33.0
+          command: ["vllm", "serve"]
+          args:
+            - Qwen/Qwen3-8B
+            - --host=0.0.0.0
+            - --port=8000
+            # Fraction of GPU memory vLLM may take (weights plus KV cache).
+            - --gpu-memory-utilization=0.90
+            # Longest prompt plus completion, in tokens. Smaller leaves more KV cache per request.
+            - --max-model-len=8192
+            # Upper bound on requests batched together. One of the M1 experiment knobs.
+            - --max-num-seqs=64
+          env:
+            # Only needed for gated models. Create the secret to use it:
+            #   kubectl -n inferops create secret generic hf-token --from-literal=token=hf_xxx
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-token
+                  key: token
+                  optional: true
+          ports:
+            - name: http
+              containerPort: 8000
+          # No memory limit yet: a guessed limit would turn into unexplained OOM kills.
+          # Set one after measuring the pod's real peak (planned with the M4 dashboards).
+          resources:
+            requests:
+              cpu: "2"
+              memory: 8Gi
+              nvidia.com/gpu: "1"
+            limits:
+              nvidia.com/gpu: "1"
+          volumeMounts:
+            - name: hf-cache
+              mountPath: /root/.cache/huggingface
+            - name: shm
+              mountPath: /dev/shm
+          # The first start downloads the weights, which can take many minutes.
+          # The startup probe gives it up to 30 minutes before the other probes take over.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 180
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+      volumes:
+        - name: hf-cache
+          persistentVolumeClaim:
+            claimName: hf-cache
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 2Gi

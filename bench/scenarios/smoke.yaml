@@ -1,0 +1,18 @@
+# Smoke test: a short sweep against the mock server. Needs no GPU.
+#   make bench-smoke
+# The mock serves 8 requests at once, so TTFT should climb once concurrency passes 8.
+name: smoke
+
+target:
+  base_url: http://127.0.0.1:8001/v1
+  model: mock-model
+
+request:
+  prompt_words: 50
+  max_tokens: 20
+
+load:
+  concurrency: [1, 2, 4, 8, 16]
+  warmup_seconds: 0.5
+  duration_seconds: 3
+  request_timeout_seconds: 30

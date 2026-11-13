@@ -1,0 +1,11 @@
+# Model weights are downloaded once and kept here, so restarts do not download them again.
+# k3s ships the `local-path` storage class, which stores the volume on the node's disk.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hf-cache
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 60Gi
