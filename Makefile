@@ -1,7 +1,8 @@
 .PHONY: help install test lint format mock bench-smoke bench guidellm check-namespace deploy-vllm undeploy-vllm port-forward
 
 SCENARIO ?= bench/scenarios/baseline.yaml
-BASE_URL ?= http://localhost:8000/v1
+INFEROPS_PORT ?= 8002
+BASE_URL ?= http://localhost:$(INFEROPS_PORT)/v1
 NAMESPACE ?= inferops
 
 help:  ## List the available targets
@@ -28,10 +29,10 @@ bench-smoke:  ## Benchmark an in-process mock server end to end (no GPU needed)
 	inferops bench --scenario bench/scenarios/smoke.yaml --spawn-mock
 
 bench:  ## Run the concurrency sweep against a real server (override SCENARIO, BASE_URL)
-	inferops bench --scenario $(SCENARIO) --base-url $(BASE_URL)
+	inferops bench --scenario "$(SCENARIO)" --base-url "$(BASE_URL)"
 
 guidellm:  ## Cross-check the numbers with GuideLLM (pip install guidellm first)
-	./scripts/guidellm_sweep.sh
+	INFEROPS_PORT="$(INFEROPS_PORT)" ./scripts/guidellm_sweep.sh
 
 check-namespace:
 ifneq ($(NAMESPACE),inferops)
@@ -45,5 +46,5 @@ deploy-vllm: check-namespace  ## Deploy vLLM to the current kube context and wai
 undeploy-vllm: check-namespace  ## Remove vLLM but keep the namespace and the model cache
 	kubectl -n $(NAMESPACE) delete deployment/vllm service/vllm
 
-port-forward: check-namespace  ## Expose the vLLM service on localhost:8000
-	kubectl -n $(NAMESPACE) port-forward service/vllm 8000:8000
+port-forward: check-namespace  ## Forward the vLLM service to localhost (INFEROPS_PORT defaults to 8002)
+	kubectl -n $(NAMESPACE) port-forward service/vllm "$(INFEROPS_PORT):8000"

@@ -93,6 +93,10 @@ can come out one request per stream lower on another run (29.33 instead of 32.00
    make bench            # terminal 2
    ```
 
+On the host, InferOps listens on `localhost:8002`, leaving `localhost:8000` available
+for the SwarmOps API. To use another host port, pass the same `INFEROPS_PORT` to both
+commands, e.g. `make port-forward INFEROPS_PORT=8012` and `make bench INFEROPS_PORT=8012`.
+
 Each run writes `summary.md`, `summary.csv`, `summary.json` and the raw `requests.jsonl` to
 `results/<scenario>-<utc-time>/`. `summary.json` also records the `inferops` version, the start
 time and the vLLM version the server reports. If a level fails or you press Ctrl-C, the levels

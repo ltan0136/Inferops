@@ -67,10 +67,20 @@ tag exists: <https://hub.docker.com/r/vllm/vllm-openai/tags>
 ## 5. Talk to it
 
 ```bash
-make port-forward            # leave running in one terminal
-curl -s localhost:8000/v1/models
-make bench                   # in another terminal
+make port-forward            # terminal 1, keep running
+curl -fsS http://localhost:8002/v1/models  # terminal 2
+make bench                   # terminal 2
 ```
+
+The host port defaults to 8002. The Kubernetes Service and the vLLM container use port 8000.
+To use a different host port, set `INFEROPS_PORT` to the same number for `make port-forward`,
+`make bench` and `make guidellm`. For a remote server, use `make bench BASE_URL=<api-url>`
+(including `/v1`), or `make guidellm TARGET=<server-url>` (server root).
+
+A SwarmOps API process running directly on this host can address the model at
+`http://localhost:8002/v1` while serving its own clients on port 8000. Inside a container,
+`localhost` refers to that container. An in-cluster client can use the Service address
+`http://vllm.inferops.svc:8000/v1`.
 
 ## Changing the model or an engine flag
 

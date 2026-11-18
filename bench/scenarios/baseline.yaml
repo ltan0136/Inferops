@@ -5,7 +5,7 @@
 name: baseline
 
 target:
-  base_url: http://localhost:8000/v1
+  base_url: http://localhost:8002/v1
   # Must match the model name vLLM serves (deploy/vllm/deployment.yaml).
   model: Qwen/Qwen3-8B
 

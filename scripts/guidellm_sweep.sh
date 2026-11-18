@@ -3,7 +3,7 @@
 # Two independent tools measuring the same server should agree on the shape of the curve.
 #
 #   pip install "guidellm==0.8.1"
-#   TARGET=http://localhost:8000 ./scripts/guidellm_sweep.sh
+#   ./scripts/guidellm_sweep.sh      # uses the local port opened by make port-forward
 #
 # GuideLLM sizes its synthetic prompts with the served model's tokenizer, which it fetches from
 # Hugging Face. Set TOKENIZER to a local tokenizer directory to stay offline.
@@ -12,7 +12,7 @@
 # the `inferops bench` run being cross-checked, and OUTPUT_TOKENS to its `max_tokens`.
 set -euo pipefail
 
-TARGET="${TARGET:-http://localhost:8000}"
+TARGET="${TARGET:-http://localhost:${INFEROPS_PORT:-8002}}"
 STREAMS="${STREAMS:-1,2,4,8,16,32,64}"
 SECONDS_PER_LEVEL="${SECONDS_PER_LEVEL:-60}"
 PROMPT_TOKENS="${PROMPT_TOKENS:-512}"

@@ -154,7 +154,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "bench", help="run a concurrency sweep against an OpenAI-compatible server"
     )
     bench.add_argument("--scenario", type=Path, required=True, help="path to a scenario YAML file")
-    bench.add_argument("--base-url", help="override target.base_url, e.g. http://localhost:8000/v1")
+    bench.add_argument("--base-url", help="override target.base_url, e.g. http://localhost:8002/v1")
     bench.add_argument("--model", help="override target.model")
     bench.add_argument("--out", type=Path, help="output directory (default: results/<name>-<utc>)")
     bench.add_argument(

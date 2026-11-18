@@ -44,6 +44,10 @@ make bench-smoke
    make bench            # 终端 2
    ```
 
+端口转发在宿主机上监听 `localhost:8002`，SwarmOps API 可以同时使用 `localhost:8000`。
+要换本地端口，在两个终端分别运行 `make port-forward INFEROPS_PORT=8012` 和
+`make bench INFEROPS_PORT=8012`。集群内 vLLM 服务的端口是 `8000`。
+
 每次运行会在 `results/<场景名>-<UTC 时间>/` 下写出 `summary.md`、`summary.csv`、`summary.json` 和原始的 `requests.jsonl`。`summary.json` 还会记下 `inferops` 版本、开始时间和服务端报告的 vLLM 版本。某一档失败或者按了 Ctrl-C，已经跑完的几档照样写出来，并标为未完成。压测场景是一个 YAML 文件：[bench/scenarios/baseline.yaml](bench/scenarios/baseline.yaml)。
 
 部署步骤是照上游文档写的，还没有在 5090 机器上实际跑过，首次实跑后会回来修正。
