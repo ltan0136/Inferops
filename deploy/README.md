@@ -50,6 +50,10 @@ kubectl get nodes -o jsonpath='{.items[0].status.allocatable.nvidia\.com/gpu}{"\
 
 ## 4. vLLM
 
+The manifests fix the namespace at `inferops`. The deploy, cleanup and port-forward targets
+require this namespace. If your shell sets `NAMESPACE` for another project, pass
+`NAMESPACE=inferops` on these make commands.
+
 ```bash
 make deploy-vllm
 ```

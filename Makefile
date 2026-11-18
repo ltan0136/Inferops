@@ -1,4 +1,4 @@
-.PHONY: help install test lint format mock bench-smoke bench guidellm deploy-vllm undeploy-vllm port-forward
+.PHONY: help install test lint format mock bench-smoke bench guidellm check-namespace deploy-vllm undeploy-vllm port-forward
 
 SCENARIO ?= bench/scenarios/baseline.yaml
 BASE_URL ?= http://localhost:8000/v1
@@ -33,12 +33,17 @@ bench:  ## Run the concurrency sweep against a real server (override SCENARIO, B
 guidellm:  ## Cross-check the numbers with GuideLLM (pip install guidellm first)
 	./scripts/guidellm_sweep.sh
 
-deploy-vllm:  ## Deploy vLLM to the current kube context and wait until it is ready
+check-namespace:
+ifneq ($(NAMESPACE),inferops)
+	$(error deploy/vllm requires NAMESPACE=inferops)
+endif
+
+deploy-vllm: check-namespace  ## Deploy vLLM to the current kube context and wait until it is ready
 	kubectl apply -k deploy/vllm
 	kubectl -n $(NAMESPACE) rollout status deployment/vllm --timeout=35m
 
-undeploy-vllm:  ## Remove vLLM but keep the namespace and the model cache
+undeploy-vllm: check-namespace  ## Remove vLLM but keep the namespace and the model cache
 	kubectl -n $(NAMESPACE) delete deployment/vllm service/vllm
 
-port-forward:  ## Expose the vLLM service on localhost:8000
+port-forward: check-namespace  ## Expose the vLLM service on localhost:8000
 	kubectl -n $(NAMESPACE) port-forward service/vllm 8000:8000

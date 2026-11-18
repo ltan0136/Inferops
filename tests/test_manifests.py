@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import re
+import subprocess
 from typing import Any
 
+import pytest
 import yaml
 
 from inferops.bench.scenario import load_scenario
@@ -24,6 +26,26 @@ def _container() -> dict[str, Any]:
 def test_kustomization_lists_files_that_exist() -> None:
     for resource in _load("kustomization.yaml")["resources"]:
         assert (VLLM_DIR / resource).is_file(), resource
+
+
+@pytest.mark.parametrize("target", ["deploy-vllm", "undeploy-vllm", "port-forward"])
+def test_make_uses_only_the_manifest_namespace(target: str) -> None:
+    namespace = _load("kustomization.yaml")["namespace"]
+    assert _load("namespace.yaml")["metadata"]["name"] == namespace
+    command = ["make", "--no-print-directory", "-n", target]
+
+    allowed = subprocess.run(
+        [*command, f"NAMESPACE={namespace}"], cwd=REPO_ROOT, capture_output=True, text=True
+    )
+    assert allowed.returncode == 0, allowed.stderr
+    assert f"kubectl -n {namespace} " in allowed.stdout
+
+    refused = subprocess.run(
+        [*command, "NAMESPACE=another-team"], cwd=REPO_ROOT, capture_output=True, text=True
+    )
+    assert refused.returncode != 0
+    assert f"NAMESPACE={namespace}" in refused.stderr
+    assert "kubectl " not in refused.stdout
 
 
 def test_image_tag_is_pinned_to_a_release() -> None:
